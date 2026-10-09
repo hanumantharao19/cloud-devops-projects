@@ -1,0 +1,44 @@
+# Terraform
+
+.terraform/
+
+# Terraform state files
+
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+
+# Terraform plan files
+
+*.tfplan
+tfplan
+tfplan.*
+
+# Local override files
+
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration and credentials
+
+.terraformrc
+terraform.rc
+
+# Sensitive keys and environment files
+
+*.pem
+*.key
+.env
+.env.*
+
+# Editor and OS files
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
