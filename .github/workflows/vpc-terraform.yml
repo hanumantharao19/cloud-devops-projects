@@ -52,3 +52,4 @@ jobs:
       - name: Terraform apply
         if: inputs.action == 'apply'
         run: terraform apply -input=false -auto-approve tfplan
+
