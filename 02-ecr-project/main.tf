@@ -1,6 +1,6 @@
 
 module "ecr" {
-  source = "source = "git::https://github.com/hanumantharao19/terraform-modules.git//ecr?ref=v1.0.1""
+  source = "git::https://github.com/hanumantharao19/terraform-modules.git//ecr?ref=v1.0.1"
 
   repository_name          = var.repository_name
   image_tag_mutability     = "MUTABLE"
