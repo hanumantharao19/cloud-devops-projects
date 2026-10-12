@@ -1,0 +1,74 @@
+
+name: ECR Terraform Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: plan
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform:
+    name: ECR Terraform
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: 02-ecr-project
+
+    env:
+      AWS_REGION: us-east-1
+      TF_IN_AUTOMATION: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: inputs.action == 'plan'
+        run: terraform plan -input=false
+
+      - name: Terraform apply
+        if: inputs.action == 'apply'
+        run: |
+          terraform plan -input=false -out=tfplan
+          terraform apply -input=false -auto-approve tfplan
+
+      - name: Terraform destroy
+        if: inputs.action == 'destroy'
+        run: |
+          terraform plan -destroy -input=false -out=destroy.tfplan
+          terraform apply -input=false -auto-approve destroy.tfplan
+
