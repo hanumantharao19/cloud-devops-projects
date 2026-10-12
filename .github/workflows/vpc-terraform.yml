@@ -54,41 +54,17 @@ jobs:
           fi
 
           echo "AWS role ARN format looks correct."
-
       - name: Diagnose GitHub OIDC claims
-        env:
-          OIDC_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-        run: |
-          set -euo pipefail
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken("sts.amazonaws.com");
+            const payload = JSON.parse(
+              Buffer.from(token.split(".")[1], "base64url").toString()
+            );
+            core.info(`OIDC subject: ${payload.sub}`);
+            core.info(`OIDC audience: ${payload.aud}`);
 
-          if [[ -z "$OIDC_URL" || -z "$OIDC_REQUEST_TOKEN" ]]; then
-            echo "ERROR: GitHub OIDC request environment is unavailable."
-            exit 1
-          fi
-
-          RESPONSE=$(curl -fsS \
-            -H "Authorization: bearer $OIDC_REQUEST_TOKEN" \
-            "${OIDC_URL}&audience=sts.amazonaws.com")
-
-          TOKEN=$(python3 -c \
-            'import json,sys; print(json.load(sys.stdin)["value"])' \
-            <<< "$RESPONSE")
-
-          python3 -c '
-          import base64
-          import json
-          import sys
-
-          payload = sys.argv[1].split(".")[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          print("OIDC subject:", claims.get("sub"))
-          print("OIDC audience:", claims.get("aud"))
-          ' "$TOKEN"
-
-          unset TOKEN RESPONSE OIDC_REQUEST_TOKEN
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
