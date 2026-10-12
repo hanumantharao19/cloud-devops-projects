@@ -91,3 +91,7 @@ jobs:
         if: ${{ inputs.action == 'apply' }}
         run: terraform apply -input=false -auto-approve tfplan
 
+      - name: Terraform destroy
+        if: ${{ inputs.action == 'destroy' }}
+        run: terraform apply -input=false -auto-approve destroy.tfplan
+
