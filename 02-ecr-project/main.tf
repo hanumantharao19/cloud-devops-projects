@@ -15,4 +15,3 @@ module "ecr" {
     ManagedBy   = "Terraform"
   }
 }
-
