@@ -8,6 +8,7 @@ module "ecr" {
   encryption_type         = "AES256"
   enable_lifecycle_policy = true
   max_image_count         = 10
+  force_delete = true
 
   tags = {
     Project     = "Cloud-DevOps"
