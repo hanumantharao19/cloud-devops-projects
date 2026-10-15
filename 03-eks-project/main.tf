@@ -87,7 +87,7 @@ module "eks" {
 
   endpoint_public_access = true
 
-   public_access_cidrs = [
+  public_access_cidrs = [
     "0.0.0.0/0"
   ]
 }
