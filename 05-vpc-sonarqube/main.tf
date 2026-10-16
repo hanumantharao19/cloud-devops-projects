@@ -14,7 +14,7 @@ module "sonar-vpc" {
       az   = "us-east-1a"
     }
   }
-
+  enable_nat_gateway = false
 }
 
 
