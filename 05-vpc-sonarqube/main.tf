@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 module "sonar-vpc" {
-  source = "git::https://github.com/hanumantharao19/terraform-modules.git//vpc?ref=v1.0.0"
+  source = "git::https://github.com/hanumantharao19/terraform-modules.git//vpc?ref=v1.0.2"
 
   vpc_name = "sonar-dev"
   vpc_cidr = "20.0.0.0/16"
