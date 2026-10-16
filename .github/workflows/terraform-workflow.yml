@@ -1,0 +1,242 @@
+name: Terraform Infrastructure Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project folder name, or all"
+        required: true
+        type: string
+        default: all
+
+      action:
+        description: "Terraform operation"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: plan
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+
+jobs:
+  terraform:
+    name: Terraform Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Detect Terraform projects
+        id: projects
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          SELECTED_PROJECT: ${{ inputs.project }}
+          ACTION_TYPE: ${{ inputs.action || 'plan' }}
+        run: |
+          set -euo pipefail
+
+          # Discover directories containing Terraform files
+          # directly in each top-level project folder.
+          mapfile -t PROJECTS < <(
+            find . \
+              -mindepth 2 \
+              -maxdepth 2 \
+              -type f \
+              -name '*.tf' \
+              -not -path '*/.terraform/*' \
+              -printf '%h\n' |
+            sed 's#^\./##' |
+            sort -u
+          )
+
+          # Exclude shared module directories from project roots.
+          FILTERED=()
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            case "$PROJECT" in
+              modules|terraform-modules)
+                continue
+                ;;
+            esac
+            FILTERED+=("$PROJECT")
+          done
+
+          PROJECTS=("${FILTERED[@]}")
+
+          if [[ ${#PROJECTS[@]} -eq 0 ]]; then
+            echo "No Terraform project directories found."
+            exit 1
+          fi
+
+          echo "Discovered projects:"
+          printf ' - %s\n' "${PROJECTS[@]}"
+
+          SELECTED=()
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+
+            # Avoid accidental destruction/application of every project.
+            if [[ "$ACTION_TYPE" != "plan" &&
+                  "$SELECTED_PROJECT" == "all" ]]; then
+              echo "ERROR: Select one project for apply or destroy."
+              exit 1
+            fi
+
+            if [[ "$SELECTED_PROJECT" == "all" ]]; then
+              SELECTED=("${PROJECTS[@]}")
+            else
+              FOUND=false
+
+              for PROJECT in "${PROJECTS[@]}"; do
+                if [[ "$PROJECT" == "$SELECTED_PROJECT" ]]; then
+                  SELECTED+=("$PROJECT")
+                  FOUND=true
+                  break
+                fi
+              done
+
+              if [[ "$FOUND" != "true" ]]; then
+                echo "ERROR: Unknown Terraform project: $SELECTED_PROJECT"
+                exit 1
+              fi
+            fi
+
+          else
+            # Find changed files on a normal push.
+            if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+              CHANGED_FILES=$(git ls-files)
+            else
+              CHANGED_FILES=$(
+                git diff --name-only "$BASE_SHA" "$HEAD_SHA"
+              )
+            fi
+
+            echo "Changed files:"
+            printf '%s\n' "$CHANGED_FILES"
+
+            # Shared workflow/module changes affect all projects.
+            if grep -Eq '^\.github/workflows/|^modules/|^terraform-modules/' \
+              <<< "$CHANGED_FILES"; then
+              SELECTED=("${PROJECTS[@]}")
+            else
+              for PROJECT in "${PROJECTS[@]}"; do
+                if grep -q "^${PROJECT}/" <<< "$CHANGED_FILES"; then
+                  SELECTED+=("$PROJECT")
+                fi
+              done
+            fi
+          fi
+
+          # Remove duplicates.
+          if [[ ${#SELECTED[@]} -gt 0 ]]; then
+            mapfile -t SELECTED < <(
+              printf '%s\n' "${SELECTED[@]}" | sort -u
+            )
+          fi
+
+          if [[ ${#SELECTED[@]} -eq 0 ]]; then
+            echo "No affected Terraform projects."
+            echo "folders=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FOLDERS=$(IFS=,; echo "${SELECTED[*]}")
+          echo "folders=$FOLDERS" >> "$GITHUB_OUTPUT"
+
+          echo "Projects to process:"
+          printf ' - %s\n' "${SELECTED[@]}"
+
+      - name: Terraform format, init, validate, plan and deploy
+        if: steps.projects.outputs.folders != ''
+        shell: bash
+        env:
+          FOLDERS: ${{ steps.projects.outputs.folders }}
+          ACTION_TYPE: ${{ inputs.action || 'plan' }}
+        run: |
+          set -euo pipefail
+
+          IFS=',' read -ra PROJECTS <<< "$FOLDERS"
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            echo "======================================"
+            echo "Project: $PROJECT"
+            echo "Action: $ACTION_TYPE"
+            echo "======================================"
+
+            cd "$GITHUB_WORKSPACE/$PROJECT"
+
+            terraform fmt -check -recursive
+            terraform init -input=false
+            terraform validate
+
+            case "$ACTION_TYPE" in
+              plan)
+                terraform plan -input=false
+                ;;
+
+              apply)
+                terraform plan \
+                  -input=false \
+                  -out=tfplan
+
+                terraform apply \
+                  -input=false \
+                  -auto-approve \
+                  tfplan
+
+                rm -f tfplan
+                ;;
+
+              destroy)
+                terraform plan \
+                  -destroy \
+                  -input=false \
+                  -out=destroy.tfplan
+
+                terraform apply \
+                  -input=false \
+                  -auto-approve \
+                  destroy.tfplan
+
+                rm -f destroy.tfplan
+                ;;
+
+              *)
+                echo "Unsupported action: $ACTION_TYPE"
+                exit 1
+                ;;
+            esac
+
+            cd "$GITHUB_WORKSPACE"
+          done
